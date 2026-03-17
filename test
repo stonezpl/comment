@@ -1,0 +1,66 @@
+ython
+import json
+import sys
+import urllib.request
+import urllib.parse
+
+# --- 你的私有化配置 ---
+APP_ID = "你的AppID"
+APP_SECRET = "你的AppSecret"
+BASE_URL = "https://open.your-company.com" # 换成公司内部飞书域名
+
+def get_tenant_access_token():
+    url = f"{BASE_URL}/open-apis/auth/v3/tenant_access_token/internal"
+    data = json.dumps({"app_id": APP_ID, "app_secret": APP_SECRET}).encode()
+    req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req) as f:
+        return json.loads(f.read().decode())['tenant_access_token']
+
+def get_doc_raw_content(doc_token, token):
+    # 获取文档所有内容的精简逻辑
+    url = f"{BASE_URL}/open-apis/docx/v1/documents/{doc_token}/raw_content"
+    req = urllib.request.Request(url, headers={'Authorization': f'Bearer {token}'})
+    with urllib.request.urlopen(req) as f:
+        return json.loads(f.read().decode())['data']['content']
+
+def main():
+    # 极简 MCP 协议响应循环
+    while True:
+        line = sys.stdin.readline()
+        if not line: break
+        try:
+            request = json.loads(line)
+            if request.get("method") == "initialize":
+                response = {"jsonrpc": "2.0", "id": request["id"], "result": {"capabilities": {"tools": {}}}}
+            elif request.get("method") == "list_tools":
+                response = {"jsonrpc": "2.0", "id": request["id"], "result": {"tools": [
+                    {"name": "read_feishu_doc", "description": "读取飞书文档内容", 
+                     "inputSchema": {"type": "object", "properties": {"url": {"type": "string"}}}}
+                ]}}
+            elif request.get("method") == "call_tool":
+                # 从 URL 提取 doc_token (简单处理)
+                doc_url = request["params"]["arguments"]["url"]
+                doc_token = doc_url.split('/')[-1].split('?')[0]
+                
+                token = get_tenant_access_token()
+                content = get_doc_raw_content(doc_token, token)
+                
+                response = {"jsonrpc": "2.0", "id": request["id"], "result": {
+                    "content": [{"type": "text", "text": content}]
+                }}
+            sys.stdout.write(json.dumps(response) + "\n")
+            sys.stdout.flush()
+        except Exception as e:
+            continue
+
+if __name__ == "__main__":
+    main()
+
+
+# 如果公司环境对证书校验严格，可加上此环境变量跳过 SSL
+export PYTHONHTTPSVERIFY=0 
+
+claude --mcp "python3 /路径/feishu_mcp.py"
+
+
+使用 read_feishu_doc 工具读取这个文档并总结：internal.feishu.cn
